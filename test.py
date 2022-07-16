@@ -9,12 +9,12 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import spotifychecker
 
-sh = spotifychecker.SpotifyHandler()
+
 def test1():
-    birdy_uri = 'spotify:artist:5sWHDYs0csV6RS48xBl0tH'
+    uri = 'spotify:artist:26T3LtbuGT1Fu9m0eRq5X3'
     spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
     
-    results = spotify.artist_albums(birdy_uri, album_type='album')
+    results = spotify.artist_albums(uri, album_type='album')
     albums = results['items']
     while results['next']:
         results = spotify.next(results)
@@ -24,6 +24,7 @@ def test1():
         print(album)
         
 def test2():
+    sh = spotifychecker.SpotifyHandler()
     sh.check()
     print(sh.pendingCount())
     while sh.pendingCount() > 0:
@@ -34,14 +35,21 @@ def test2():
 
     
 def test3():
+    sh = spotifychecker.SpotifyHandler()
     res = sh.spotify.artists(["spotify:artist:5sWHDYs0csV6RS48xBl0tH"])
 
     print(res["artists"][0]["name"])
     
 def test4():
+    sh = spotifychecker.SpotifyHandler()
     res = sh.searchForArtist("Grandson")
     print(res)
     sh.addSubscription("145372956304867328", res["uri"])
     
 def test5():
+    sh = spotifychecker.SpotifyHandler()
     sh.newArtist("spotify:artist:5sWHDYs0csV6RS48xBl0tH")
+    
+def test6():
+    sh = spotifychecker.SpotifyHandler()
+    print(sh.getArtistName("spotify:artist:5sWHDYs0csV6RS48xBl0tH"))

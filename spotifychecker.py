@@ -10,11 +10,20 @@ from spotipy.oauth2 import SpotifyClientCredentials
 
 import sqlite3
 
+SUCCESS = 0
+ARTIST_NOT_FOUND = 1
+ALREADY_SUBSCRIBED = 2
+OTHER_ERROR = 3
+
+
 class SpotifyHandler():
-    
     def __init__(self):
+        print("Logging in to Spotify", end="...")
         self.spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+        print("Done.")
+        print("Connecting to Data Warehouse", end="...")
         self.dataWarehouse = sqlite3.connect("datawarehouse.db")
+        print("Done.")
         self.cursor = self.dataWarehouse.cursor()
         
     def commit(self):
@@ -27,18 +36,22 @@ class SpotifyHandler():
         self.commit()
         
     def check(self): 
-        print("starting check")
+        print("Getting subbed artitsts")
         artists = self.getSubbedArtists()
         cur = self.cursor
         for artist in artists:
+            #print("Checking artist {}".format(artist))
+            cur.execute("SELECT COUNT(*) FROM subscriptions WHERE artist = ?", (artist,))
+            #print("Getting artist name")
             artist_name = self.getArtistName(artist)
+            #print("Getting albums")
             results = self.spotify.artist_albums(artist)
+            #print("Found albums")
             albums = results["items"]
             while results["next"]:
                 results = self.spotify.next(results)
                 albums.extend(results["items"])
             if albums:  
-                print("Found albums for {}".format(artist_name))
                 for album in albums:
                     if album["album_type"] != "compilation":
                         uri = album["uri"]
@@ -52,10 +65,8 @@ class SpotifyHandler():
                             album_name = album["name"]
                             artist_string = self.getArtistsString(album)
                             self.insertPending(user, artist_name, artist_string, uri, album_name, url)
-                else:
-                    print("No new albums found for {}".format(artist_name))
         self.commit()
-        
+        print("Done checking")
     def getArtistsString(self, album_data):
         artists = []
         for artist in album_data["artists"]:
@@ -98,59 +109,67 @@ class SpotifyHandler():
         cur = self.cursor
         artists = []
         if user:
-            for row in cur.execute("SELECT DISTINCT artist FROM subscriptions WHERE user = ?",(user)):
+            for row in cur.execute("SELECT DISTINCT artist FROM subscriptions WHERE user = ?",(str(user),)):
                 artists.append(row[0])
         else:
             for row in cur.execute("SELECT DISTINCT artist FROM subscriptions"):
                 artists.append(row[0])
         return artists
-
+        
     def searchForArtist(self, artist_name):
+        print("Searching for artist")
         results = self.spotify.search(q="artist:" + artist_name, type="artist", limit=1)
         items = results["artists"]["items"]
         if len(items) > 0:
+            print("Artist found")
             artist = items[0]
             try:
-                a = {"name":artist["name"], "image":artist["images"][0]["url"],"uri":artist["uri"]}
+                res = {"name":artist["name"], "image":artist["images"][0]["url"],"uri":artist["uri"]}
             except:
-                a = {"name":artist["name"], "image":"","uri":artist["uri"]}
-            return a
+                res = {"name":artist["name"], "image":"","uri":artist["uri"]}
         else:
-            return None
-    
-
+            print("Artist not found")
+            res = {"name":None,"image":"","uri":""}
+        return res
     
     def addSubscription(self, user, artist):
+        print("Adding subscription")
         cur = self.cursor
         cur.execute("SELECT COUNT(*) FROM subscriptions WHERE artist = ?", (artist,))
         res = cur.fetchone()
         if res[0] == 0:
             self.newArtist(artist)
-        cur.execute("SELECT COUNT(*) FROM subscriptions WHERE user = ? AND artist = ?", (user, artist))
+        cur.execute("SELECT COUNT(*) FROM subscriptions WHERE user = ? AND artist = ?", (str(user), artist))
         res = cur.fetchone()
         if res[0] > 1:
             print("More than one subscription found")
-            cur.execute("DELETE FROM subscriptions WHERE user = ? AND artist = ?", (user, artist))
-            cur.execute("INSERT INTO subscriptions (user, artist) VALUES (?, ?)", (user, artist))
+            cur.execute("DELETE FROM subscriptions WHERE user = ? AND artist = ?", (str(user), artist))
+            cur.execute("INSERT INTO subscriptions (user, artist) VALUES (?, ?)", (str(user), artist))
             self.commit()
+            return ALREADY_SUBSCRIBED
         if res[0] == 1:
             print("Already subscribed")
+            return ALREADY_SUBSCRIBED
         if res[0] == 0:
             print("Subscribing")
-            cur.execute("INSERT INTO subscriptions (user, artist) VALUES (?, ?)", (user, artist))
+            cur.execute("INSERT INTO subscriptions (user, artist) VALUES (?, ?)", (str(user), artist))
             self.commit()
-            self.newArtist(artist)
+            #status_code = self.newArtist(artist)
+            return SUCCESS
         
         
     def newArtist(self, artist):
-        cur = self.cursor
         results = self.spotify.artist_albums(artist)
         albums = results["items"]
-        while results["next"]:
-            results = self.spotify.next(results)
-            albums.extend(results["items"])
-        for album in albums:
-            self.addAlbum(album_data=album)
+        if results["next"]:
+            while results["next"]:
+                results = self.spotify.next(results)
+                albums.extend(results["items"])
+            for album in albums:
+                self.addAlbum(album_data=album)
+            return SUCCESS
+        else:
+            return ARTIST_NOT_FOUND
         
     
     def addAlbum(self, album_data=None, album_uri=None):
@@ -178,6 +197,34 @@ class SpotifyHandler():
         
     def removeSubscription(self, user, artist):
         cur = self.cursor
-        cur.execute("DELETE FROM subscriptions WHERE user = ? AND artist = ?", (user, artist))
-        self.commit()            
+        cur.execute("DELETE FROM subscriptions WHERE user = ? AND artist = ?", (str(user), artist))
+        self.commit()   
+        return SUCCESS         
         
+    
+    def subscribe(self, user, artist_name):
+        status_code = OTHER_ERROR
+        res = self.searchForArtist(artist_name)
+        if res["name"]:
+            uri = res["uri"]
+            status_code = self.addSubscription(user, uri)
+        else:
+            status_code = ARTIST_NOT_FOUND
+        return (status_code, res)
+        
+    def unsubscribe(self, user, artist_name):
+        status_code = OTHER_ERROR
+        res = self.searchForArtist(artist_name)
+        if res["name"]:
+            uri = res["uri"]
+            status_code = self.removeSubscription(user, uri)
+        else:
+            status_code = ARTIST_NOT_FOUND
+        return (status_code, res)
+    
+    def getSubscriptions(self, user):
+        cur = self.cursor
+        res = []
+        for row in cur.execute("SELECT artist FROM subscriptions WHERE user=?", (str(user), )):
+            res.append(self.getArtistName(row[0]))
+        return res

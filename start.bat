@@ -1,0 +1,2 @@
+py noteboatbot.py
+pause
