@@ -105,7 +105,10 @@ async def check():
         res = sh.getNextPending()
         user = await bot.fetch_user(int(res["user"]))
         print("Notifying user {} of new album {}".format(user.name, res["album_name"]))
-        await user.send("Hey! New release from {artist_name}, {album_name}. Check it out here: {url}".format(**res))
+        try:
+            await user.send("Hey! New release from {artist_name}, {album_name}. Check it out here: {url}".format(**res))
+        except:
+            await log("Couldn't send message to {}. If they are still here, investigate.".format(user.name))
         sh.unpend(res["ID"],res["album"])
     print("Done. Waiting til next check.")
 
