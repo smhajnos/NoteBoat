@@ -64,7 +64,8 @@ class SpotifyHandler():
                                 user = u[0]
                             album_name = album["name"]
                             artist_string = self.getArtistsString(album)
-                            self.insertPending(user, artist_name, artist_string, uri, album_name, url)
+                            if artist_string != "Various Artists":
+                                self.insertPending(user, artist_name, artist_string, uri, album_name, url)
         self.commit()
         print("Done checking")
     def getArtistsString(self, album_data):
